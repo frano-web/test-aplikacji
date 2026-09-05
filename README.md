@@ -94,3 +94,16 @@ W zakładce **Czat** kliknij **Włącz powiadomienia** i zaakceptuj zgodę przeg
 
 ## PLANER v2.2 — poprawka uruchamiania
 Frontend nie używa już importu ESM `+esm`. Supabase JS jest ładowany jako klasyczny skrypt UMD z jsDelivr, z automatycznym fallbackiem do unpkg. Dodano `diagnostyka.html`, która sprawdza config, bibliotekę i odpowiedź Supabase Auth. `supabase-update-v2.sql` nadal jest aktualizacją dla istniejącej bazy.
+
+
+## Aktualizacja v2.3 — telefon
+
+- czytelniejszy układ mobilny i większe elementy dotykowe,
+- stały przycisk **Wyloguj** u góry ekranu telefonu,
+- dolny pasek ograniczony do Start / Wyjazdy / Kalendarz / Czat / Więcej,
+- pełne menu mobilne po kliknięciu **Więcej** lub ikony ☰,
+- druga opcja wylogowania w pełnym menu,
+- lepszy układ czatu, kart, tabel/wierszy i formularzy na małych ekranach,
+- nowy cache PWA `planer-v23`.
+
+Ta aktualizacja nie wymaga zmian SQL.

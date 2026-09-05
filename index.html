@@ -7,7 +7,7 @@
   <meta name="description" content="PLANER — klubowy system organizacji wyjazdów, transportu, sprzętu i komunikacji">
   <title>PLANER</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=22">
+  <link rel="stylesheet" href="./styles.css?v=23">
 </head>
 <body>
   <div id="app">
@@ -20,7 +20,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="modal" class="modal"><div id="modal-content"></div></dialog>
 
-  <script src="./config.js?v=22"></script>
+  <script src="./config.js?v=23"></script>
   <script>
   (()=>{
     const setStage=(text)=>{ const el=document.getElementById('boot-stage'); if(el) el.textContent=text; window.__planerStage=text; };
@@ -44,7 +44,7 @@
       if(!window.supabase?.createClient){ fatal('Biblioteka Supabase załadowała się, ale funkcja createClient nie jest dostępna.'); return; }
       setStage('Ładowanie PLANER…');
       const s=document.createElement('script');
-      s.src='./app.js?v=22';
+      s.src='./app.js?v=23';
       s.onload=()=>setTimeout(()=>{ if(document.documentElement.dataset.planerBoot!=='ready') fatal('Kod PLANER został pobrany, ale nie zakończył startu. Otwórz Diagnostykę.'); },7000);
       s.onerror=()=>fatal('Nie udało się pobrać pliku app.js z GitHub Pages. Sprawdź, czy app.js znajduje się w głównym katalogu repozytorium.');
       document.body.appendChild(s);

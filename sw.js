@@ -1,4 +1,4 @@
-const CACHE='planer-v22';
+const CACHE='planer-v23';
 const CORE=['./','./index.html','./styles.css','./app.js','./config.js','./manifest.webmanifest','./diagnostyka.html'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)));});
 self.addEventListener('activate',e=>e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()])));

@@ -168,14 +168,30 @@ function navItems(){
 
 function shell(){
   const nav=navItems();
-  const navHtml=nav.map(([id,n])=>`<button class="nav-btn ${state.view===id?'active':''}" data-nav="${id}" type="button"><span>${ICONS[id]||'•'}</span><span class="nav-label">${n}${id==='chat'?` <b class="nav-alert ${state.chatUnreadTotal?'':'hidden'}" data-chat-badge>${state.chatUnreadTotal>99?'99+':state.chatUnreadTotal}</b>`:''}</span></button>`).join('');
-  app.innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">P</div><div><strong>PLANER</strong><p>centrum klubu</p></div></div><div class="side-user"><strong>${esc(state.profile.full_name)}</strong><span>${esc(ROLES[role()]||role())}</span></div><nav class="nav">${navHtml}</nav><div class="sidebar-foot">${canUseQuickActions()?'<button id="quick-btn" class="ghost" type="button">⚡ Szybkie akcje</button>':''}<button id="logout-btn" class="ghost" type="button">Wyloguj</button></div></aside><main class="main"><header class="topbar"><div class="top-title"><small id="eyebrow">PLANER</small><h2 id="page-title">Start</h2></div><div class="top-actions"><button id="focus-btn" class="icon-btn hide-mobile" type="button">⚡ Tryb wyjazdu</button><button id="notice-btn" class="icon-btn" type="button">🔔 <span class="badge-count">${state.unread}</span></button></div></header><section id="content" class="content"></section></main></div><nav class="mobile-nav">${navHtml}</nav>`;
+  const navButton=([id,n],extra='')=>`<button class="nav-btn ${state.view===id?'active':''} ${extra}" data-nav="${id}" type="button"><span>${ICONS[id]||'•'}</span><span class="nav-label">${n}${id==='chat'?` <b class="nav-alert ${state.chatUnreadTotal?'':'hidden'}" data-chat-badge>${state.chatUnreadTotal>99?'99+':state.chatUnreadTotal}</b>`:''}</span></button>`;
+  const navHtml=nav.map(x=>navButton(x)).join('');
+  const primaryIds=['dashboard','trips','calendar','chat'];
+  const mobilePrimary=nav.filter(([id])=>primaryIds.includes(id)).map(x=>navButton(x,'mobile-primary')).join('');
+  app.innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">P</div><div><strong>PLANER</strong><p>centrum klubu</p></div></div><div class="side-user"><strong>${esc(state.profile.full_name)}</strong><span>${esc(ROLES[role()]||role())}</span></div><nav class="nav">${navHtml}</nav><div class="sidebar-foot">${canUseQuickActions()?'<button id="quick-btn" class="ghost" type="button">⚡ Szybkie akcje</button>':''}<button id="logout-btn" class="danger-btn" type="button">↪ Wyloguj</button></div></aside><main class="main"><div class="mobile-userbar"><div class="mobile-user"><div class="mobile-avatar">${esc((state.profile.full_name||'P').trim().charAt(0).toUpperCase())}</div><div class="mobile-user-text"><strong>${esc(state.profile.full_name)}</strong><span>${esc(ROLES[role()]||role())}</span></div></div><button id="mobile-logout-btn" class="mobile-logout" type="button">Wyloguj</button></div><header class="topbar"><div class="top-title"><small id="eyebrow">PLANER</small><h2 id="page-title">Start</h2></div><div class="top-actions"><button id="focus-btn" class="icon-btn hide-mobile" type="button">⚡ Tryb wyjazdu</button><button id="notice-btn" class="icon-btn notice-mobile" type="button" aria-label="Powiadomienia">🔔 <span class="badge-count">${state.unread}</span></button><button id="mobile-menu-btn" class="icon-btn mobile-menu-trigger" type="button" aria-label="Otwórz pełne menu">☰</button></div></header><section id="content" class="content"></section></main></div><nav class="mobile-nav" aria-label="Główne menu mobilne">${mobilePrimary}<button class="nav-btn mobile-more" id="mobile-more-btn" type="button"><span>•••</span><span class="nav-label">Więcej</span></button></nav>`;
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>navigate(b.dataset.nav));
-  document.querySelector('#logout-btn').onclick=()=>sb.auth.signOut();
+  const doLogout=()=>sb.auth.signOut();
+  document.querySelector('#logout-btn')?.addEventListener('click',doLogout);
+  document.querySelector('#mobile-logout-btn')?.addEventListener('click',doLogout);
   document.querySelector('#notice-btn').onclick=showAnnouncements;
   document.querySelector('#focus-btn').onclick=()=>{state.focusMode=!state.focusMode;render();};
   document.querySelector('#quick-btn')?.addEventListener('click',quickActions);
+  document.querySelector('#mobile-more-btn')?.addEventListener('click',mobileMenu);
+  document.querySelector('#mobile-menu-btn')?.addEventListener('click',mobileMenu);
   updateNavBadges();
+}
+
+function mobileMenu(){
+  const nav=navItems();
+  showModal('Menu PLANER',`<div class="mobile-menu-sheet"><div class="mobile-menu-profile"><strong>${esc(state.profile.full_name)}</strong><span>${esc(ROLES[role()]||role())}</span></div><div class="mobile-menu-list">${nav.map(([id,n])=>`<button class="mobile-menu-item ${state.view===id?'active':''}" data-mobile-nav="${id}" type="button"><span class="mobile-menu-icon">${ICONS[id]||'•'}</span><span>${n}</span>${id==='chat'&&state.chatUnreadTotal?`<b class="nav-alert">${state.chatUnreadTotal>99?'99+':state.chatUnreadTotal}</b>`:''}</button>`).join('')}</div>${canUseQuickActions()?'<button id="mobile-quick" class="ghost mobile-menu-action" type="button">⚡ Szybkie akcje</button>':''}<button id="mobile-menu-logout" class="danger-btn mobile-menu-action" type="button">↪ Wyloguj z PLANER</button></div>`,()=>{
+    modalContent.querySelectorAll('[data-mobile-nav]').forEach(b=>b.onclick=()=>{closeModal();navigate(b.dataset.mobileNav);});
+    modalContent.querySelector('#mobile-menu-logout')?.addEventListener('click',()=>sb.auth.signOut());
+    modalContent.querySelector('#mobile-quick')?.addEventListener('click',()=>{closeModal();quickActions();});
+  });
 }
 
 function setTitle(eye,title){ document.querySelector('#eyebrow').textContent=eye; document.querySelector('#page-title').textContent=title; }
@@ -431,7 +447,7 @@ async function boot(){
   sb.auth.onAuthStateChange(async (_event,session)=>{state.session=session;if(!session){state.profile=null;if(state.notificationChannel)sb.removeChannel(state.notificationChannel);authScreen();document.documentElement.dataset.planerBoot='ready';return;}try{await loadProfile();await loadBase();shell();render();subscribeGlobalMessages();}catch(e){fail(e);authScreen();}});
   if(!session){authScreen();document.documentElement.dataset.planerBoot='ready';return;} try{await loadProfile();await loadBase();shell();render();subscribeGlobalMessages();}catch(e){fail(e);authScreen();}
   document.documentElement.dataset.planerBoot='ready';
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=22').catch(()=>{});
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=23').catch(()=>{});
 }
 
 boot();
