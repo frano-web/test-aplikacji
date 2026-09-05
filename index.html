@@ -7,7 +7,7 @@
   <meta name="description" content="PLANER — klubowy system organizacji wyjazdów, transportu, sprzętu i komunikacji">
   <title>PLANER</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=21">
 </head>
 <body>
   <div id="app">
@@ -19,6 +19,21 @@
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="modal" class="modal"><div id="modal-content"></div></dialog>
-  <script type="module" src="./app.js"></script>
+  <script>
+    window.addEventListener('error', function(e){ console.error('PLANER startup error', e.error || e.message); });
+    window.addEventListener('unhandledrejection', function(e){ console.error('PLANER promise error', e.reason); });
+    setTimeout(function(){
+      if(document.documentElement.dataset.planerBoot==='ready') return;
+      const el=document.getElementById('app');
+      if(!el) return;
+      el.innerHTML='<section class="auth-shell"><div class="auth-card"><div class="brand"><div class="brand-mark">P</div><div><h1>PLANER</h1><p>Problem z uruchomieniem</p></div></div><div class="notice important" style="margin-top:20px"><strong>Aplikacja nie uruchomiła się poprawnie.</strong><p class="muted">Najczęściej jest to stary cache GitHub Pages/PWA. Kliknij przycisk poniżej, aby wyczyścić cache aplikacji i uruchomić ją ponownie.</p></div><button id="planer-repair" class="primary" type="button" style="margin-top:14px">Napraw i uruchom ponownie</button></div></section>';
+      const b=document.getElementById('planer-repair');
+      if(b) b.onclick=async function(){
+        try{ if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); } if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.filter(k=>k.startsWith('planer-')).map(k=>caches.delete(k))); } }catch(_){}
+        location.replace(location.pathname+'?repair='+Date.now());
+      };
+    },7000);
+  </script>
+  <script type="module" src="./app.js?v=21"></script>
 </body>
 </html>

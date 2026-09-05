@@ -1,5 +1,5 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/+esm';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/+esm';
+import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js?v=21';
 
 const app = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
@@ -408,12 +408,30 @@ function subscribeGlobalMessages(){
 
 async function refresh(){ await loadBase(); updateNavBadges(); }
 
+function withTimeout(promise, ms, message='Przekroczono czas oczekiwania.') {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer=setTimeout(()=>reject(new Error(message)), ms); })
+  ]).finally(()=>clearTimeout(timer));
+}
+
 async function boot(){
-  if(!configured){configScreen();return;}
-  const {data:{session}}=await supabase.auth.getSession(); state.session=session;
-  supabase.auth.onAuthStateChange(async (_event,session)=>{state.session=session;if(!session){state.profile=null;if(state.notificationChannel)supabase.removeChannel(state.notificationChannel);authScreen();return;}try{await loadProfile();await loadBase();shell();render();subscribeGlobalMessages();}catch(e){fail(e);authScreen();}});
-  if(!session){authScreen();return;} try{await loadProfile();await loadBase();shell();render();subscribeGlobalMessages();}catch(e){fail(e);authScreen();}
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  document.documentElement.dataset.planerBoot='starting';
+  if(!configured){configScreen();document.documentElement.dataset.planerBoot='ready';return;}
+  let session=null;
+  try {
+    const result=await withTimeout(supabase.auth.getSession(), 5000, 'Supabase nie odpowiedział podczas sprawdzania sesji.');
+    session=result.data.session;
+  } catch(e) {
+    console.warn(e);
+    session=null;
+  }
+  state.session=session;
+  supabase.auth.onAuthStateChange(async (_event,session)=>{state.session=session;if(!session){state.profile=null;if(state.notificationChannel)supabase.removeChannel(state.notificationChannel);authScreen();document.documentElement.dataset.planerBoot='ready';return;}try{await loadProfile();await loadBase();shell();render();subscribeGlobalMessages();}catch(e){fail(e);authScreen();}});
+  if(!session){authScreen();document.documentElement.dataset.planerBoot='ready';return;} try{await loadProfile();await loadBase();shell();render();subscribeGlobalMessages();}catch(e){fail(e);authScreen();}
+  document.documentElement.dataset.planerBoot='ready';
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js?v=21').catch(()=>{});
 }
 
 boot();

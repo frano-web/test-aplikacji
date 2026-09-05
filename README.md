@@ -83,3 +83,11 @@ W zakładce **Czat** kliknij **Włącz powiadomienia** i zaakceptuj zgodę przeg
 - `manifest.webmanifest` — PWA,
 - `sw.js` — cache i obsługa kliknięcia powiadomienia,
 - `.nojekyll` — GitHub Pages.
+
+
+## v2.1 — poprawka uruchamiania
+
+- klient Supabase zaktualizowany do 2.115.0,
+- start aplikacji ma timeout i nie wisi bez końca na ekranie Uruchamianie,
+- dodano automatyczną stronę naprawy cache PWA/GitHub Pages,
+- cache aplikacji ma wersję planer-v21.
