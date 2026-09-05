@@ -48,7 +48,9 @@ create table if not exists public.invite_codes (
   created_at timestamptz not null default now(),
   used_by uuid references public.profiles(id) on delete set null,
   used_at timestamptz,
-  expires_at timestamptz
+  expires_at timestamptz,
+  use_count integer not null default 0 check (use_count >= 0),
+  max_uses integer default 1 check (max_uses is null or max_uses >= 1)
 );
 
 -- ---------- Club / trips ----------
@@ -221,6 +223,13 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.chat_reads (
+  group_id uuid not null references public.chat_groups(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key(group_id, user_id)
+);
+
 -- ---------- Admin-only finances ----------
 create table if not exists public.expenses (
   id uuid primary key default gen_random_uuid(),
@@ -270,6 +279,26 @@ security definer
 set search_path = public
 as $$ select coalesce(public.current_planer_role() in ('admin','coach'), false); $$;
 
+
+create or replace function public.is_trip_member(p_trip_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$ select exists(select 1 from public.trip_members where trip_id=p_trip_id and user_id=auth.uid()); $$;
+
+create or replace function public.can_view_trip(p_trip_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(public.current_planer_role() in ('admin','coach','mechanic','driver'), false)
+      or public.is_trip_member(p_trip_id);
+$$;
+
 create or replace function public.is_chat_member(p_group_id uuid)
 returns boolean
 language sql
@@ -290,7 +319,7 @@ as $$
   select exists(select 1 from public.chat_groups where id=p_group_id and created_by=auth.uid());
 $$;
 
--- Secure one-time invite claim during Auth signup.
+-- Secure invite claim during Auth signup. Athlete codes may be shared for 24h.
 create or replace function public.handle_new_planer_user()
 returns trigger
 language plpgsql
@@ -305,29 +334,24 @@ begin
   v_code := upper(regexp_replace(coalesce(new.raw_user_meta_data->>'invite_code',''), '[^A-Z0-9]', '', 'g'));
   v_name := nullif(trim(coalesce(new.raw_user_meta_data->>'full_name','')), '');
 
-  if v_name is null then
-    raise exception 'Brak imienia i nazwiska.';
-  end if;
+  if v_name is null then raise exception 'Brak imienia i nazwiska.'; end if;
 
   select * into v_invite
   from public.invite_codes
   where code = v_code
-    and used_at is null
     and (expires_at is null or expires_at > now())
+    and (max_uses is null or use_count < max_uses)
   for update;
 
-  if not found then
-    raise exception 'Kod dostępu jest nieprawidłowy, wykorzystany lub wygasł.';
-  end if;
+  if not found then raise exception 'Kod dostępu jest nieprawidłowy, wykorzystany lub wygasł.'; end if;
 
-  insert into public.profiles(id, full_name, role)
-  values(new.id, v_name, v_invite.role);
-
-  insert into public.directory(id, full_name)
-  values(new.id, v_name);
+  insert into public.profiles(id, full_name, role) values(new.id, v_name, v_invite.role);
+  insert into public.directory(id, full_name) values(new.id, v_name);
 
   update public.invite_codes
-  set used_at = now(), used_by = new.id
+  set use_count = use_count + 1,
+      used_by = new.id,
+      used_at = case when max_uses is not null and use_count + 1 >= max_uses then now() else used_at end
   where id = v_invite.id;
 
   return new;
@@ -351,26 +375,71 @@ drop trigger if exists profiles_sync_directory on public.profiles;
 create trigger profiles_sync_directory after update of full_name,active on public.profiles
 for each row execute procedure public.sync_planer_directory();
 
--- Generate a one-time access code. Admin only.
+-- Generate access code. Athlete: shared for 24h; other roles: one-time. Admin only.
 create or replace function public.generate_invite_code(p_role public.planer_role, p_expires_hours integer default 168)
 returns text
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare v_code text;
+declare v_code text; v_hours integer; v_max integer;
 begin
   if not public.is_planer_admin() then raise exception 'Brak uprawnień'; end if;
+  v_hours := case when p_role='athlete' then 24 else greatest(1,coalesce(p_expires_hours,168)) end;
+  v_max := case when p_role='athlete' then null else 1 end;
   loop
     v_code := upper(substr(replace(gen_random_uuid()::text,'-',''),1,8));
     begin
-      insert into public.invite_codes(code, role, created_by, expires_at)
-      values(v_code, p_role, auth.uid(), case when p_expires_hours is null then null else now() + make_interval(hours => p_expires_hours) end);
+      insert into public.invite_codes(code, role, created_by, expires_at, max_uses)
+      values(v_code, p_role, auth.uid(), now() + make_interval(hours => v_hours), v_max);
       return v_code;
     exception when unique_violation then null;
     end;
   end loop;
 end; $$;
+
+create or replace function public.mark_announcement_read(p_announcement_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path=public
+as $$
+begin
+  if auth.uid() is null then raise exception 'Brak sesji'; end if;
+  if not exists(select 1 from public.announcements a where a.id=p_announcement_id and (a.trip_id is null or public.can_view_trip(a.trip_id))) then
+    raise exception 'Brak dostępu do komunikatu.';
+  end if;
+  insert into public.announcement_reads(announcement_id,user_id) values(p_announcement_id,auth.uid()) on conflict do nothing;
+end; $$;
+
+create or replace function public.mark_chat_read(p_group_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path=public
+as $$
+begin
+  if not public.is_chat_member(p_group_id) then raise exception 'Brak dostępu do czatu.'; end if;
+  insert into public.chat_reads(group_id,user_id,last_read_at) values(p_group_id,auth.uid(),now())
+  on conflict(group_id,user_id) do update set last_read_at=excluded.last_read_at;
+end; $$;
+
+create or replace function public.get_chat_unread_counts()
+returns table(group_id uuid, unread_count bigint)
+language sql
+stable
+security definer
+set search_path=public
+as $$
+  select cm.group_id, count(m.id)::bigint
+  from public.chat_members cm
+  left join public.chat_reads cr on cr.group_id=cm.group_id and cr.user_id=cm.user_id
+  left join public.messages m on m.group_id=cm.group_id
+    and m.sender_id<>auth.uid()
+    and m.created_at>coalesce(cr.last_read_at,cm.joined_at)
+  where cm.user_id=auth.uid()
+  group by cm.group_id;
+$$;
 
 -- Athlete/member updates only own allowed trip fields through RPC.
 create or replace function public.set_my_task_done(p_task_id uuid, p_done boolean)
@@ -484,6 +553,7 @@ alter table public.announcement_reads enable row level security;
 alter table public.chat_groups enable row level security;
 alter table public.chat_members enable row level security;
 alter table public.messages enable row level security;
+alter table public.chat_reads enable row level security;
 alter table public.expenses enable row level security;
 alter table public.documents enable row level security;
 
@@ -517,11 +587,17 @@ grant execute on function public.set_my_task_done(uuid, boolean) to authenticate
 grant execute on function public.update_my_trip_response(uuid, public.member_trip_status, uuid, text, text, text, integer) to authenticated;
 grant execute on function public.create_chat(text, uuid[], uuid) to authenticated;
 grant execute on function public.create_direct_chat(uuid) to authenticated;
+grant execute on function public.mark_announcement_read(uuid) to authenticated;
+grant execute on function public.mark_chat_read(uuid) to authenticated;
+grant execute on function public.get_chat_unread_counts() to authenticated;
 revoke execute on function public.generate_invite_code(public.planer_role, integer) from public, anon;
 revoke execute on function public.set_my_task_done(uuid, boolean) from public, anon;
 revoke execute on function public.update_my_trip_response(uuid, public.member_trip_status, uuid, text, text, text, integer) from public, anon;
 revoke execute on function public.create_chat(text, uuid[], uuid) from public, anon;
 revoke execute on function public.create_direct_chat(uuid) from public, anon;
+revoke execute on function public.mark_announcement_read(uuid) from public, anon;
+revoke execute on function public.mark_chat_read(uuid) from public, anon;
+revoke execute on function public.get_chat_unread_counts() from public, anon;
 
 -- profiles: own profile; admin/coach can manage/read team profiles.
 create policy profiles_select on public.profiles for select to authenticated
@@ -546,18 +622,18 @@ create policy vehicles_update on public.vehicles for update to authenticated usi
 create policy vehicles_delete on public.vehicles for delete to authenticated using (public.is_planer_admin());
 
 -- trips
-create policy trips_select on public.trips for select to authenticated using (true);
+create policy trips_select on public.trips for select to authenticated using (public.can_view_trip(id));
 create policy trips_insert on public.trips for insert to authenticated with check (public.is_planer_staff());
 create policy trips_update on public.trips for update to authenticated using (public.is_planer_staff()) with check (public.is_planer_staff());
 create policy trips_delete on public.trips for delete to authenticated using (public.is_planer_admin());
 
 -- trip vehicles and stops
-create policy tv_select on public.trip_vehicles for select to authenticated using (true);
+create policy tv_select on public.trip_vehicles for select to authenticated using (public.can_view_trip(trip_id));
 create policy tv_insert on public.trip_vehicles for insert to authenticated with check (public.is_planer_staff());
 create policy tv_update on public.trip_vehicles for update to authenticated using (public.is_planer_staff()) with check (public.is_planer_staff());
 create policy tv_delete on public.trip_vehicles for delete to authenticated using (public.is_planer_staff());
 
-create policy stops_select on public.pickup_stops for select to authenticated using (true);
+create policy stops_select on public.pickup_stops for select to authenticated using (exists(select 1 from public.trip_vehicles tv where tv.id=trip_vehicle_id and public.can_view_trip(tv.trip_id)));
 create policy stops_insert on public.pickup_stops for insert to authenticated with check (public.is_planer_staff());
 create policy stops_update on public.pickup_stops for update to authenticated
 using (public.is_planer_staff() or exists(select 1 from public.trip_vehicles tv where tv.id=trip_vehicle_id and tv.driver_id=auth.uid()))
@@ -566,15 +642,15 @@ create policy stops_delete on public.pickup_stops for delete to authenticated us
 
 -- trip members: self, staff, or driver of assigned vehicle can read. Direct writes staff only.
 create policy tm_select on public.trip_members for select to authenticated using (
-  user_id=auth.uid() or public.is_planer_staff() or
-  (public.current_planer_role()='driver' and exists(select 1 from public.trip_vehicles tv where tv.id=trip_vehicle_id and tv.driver_id=auth.uid()))
+  user_id=auth.uid() or public.is_planer_staff() or public.current_planer_role()='mechanic' or
+  exists(select 1 from public.trip_vehicles tv where tv.id=trip_vehicle_id and tv.driver_id=auth.uid())
 );
 create policy tm_insert on public.trip_members for insert to authenticated with check (public.is_planer_staff());
 create policy tm_update on public.trip_members for update to authenticated using (public.is_planer_staff()) with check (public.is_planer_staff());
 create policy tm_delete on public.trip_members for delete to authenticated using (public.is_planer_staff());
 
 -- calendar
-create policy ce_select on public.calendar_events for select to authenticated using (true);
+create policy ce_select on public.calendar_events for select to authenticated using (trip_id is null or public.can_view_trip(trip_id));
 create policy ce_insert on public.calendar_events for insert to authenticated with check (public.is_planer_staff());
 create policy ce_update on public.calendar_events for update to authenticated using (public.is_planer_staff()) with check (public.is_planer_staff());
 create policy ce_delete on public.calendar_events for delete to authenticated using (public.is_planer_staff());
@@ -597,13 +673,13 @@ create policy tasks_update on public.tasks for update to authenticated using (pu
 create policy tasks_delete on public.tasks for delete to authenticated using (public.is_planer_staff());
 
 -- shopping: all authenticated can read. Add only if list active. Creator/staff can update; staff delete.
-create policy shop_select on public.shopping_items for select to authenticated using (true);
-create policy shop_insert on public.shopping_items for insert to authenticated with check (created_by=auth.uid() and exists(select 1 from public.trips t where t.id=trip_id and t.shopping_enabled));
+create policy shop_select on public.shopping_items for select to authenticated using (public.can_view_trip(trip_id));
+create policy shop_insert on public.shopping_items for insert to authenticated with check (created_by=auth.uid() and public.can_view_trip(trip_id) and exists(select 1 from public.trips t where t.id=trip_id and t.shopping_enabled));
 create policy shop_update on public.shopping_items for update to authenticated using (created_by=auth.uid() or public.is_planer_staff()) with check (created_by=auth.uid() or public.is_planer_staff());
 create policy shop_delete on public.shopping_items for delete to authenticated using (public.is_planer_staff() or created_by=auth.uid());
 
 -- announcements
-create policy ann_select on public.announcements for select to authenticated using (true);
+create policy ann_select on public.announcements for select to authenticated using (trip_id is null or public.can_view_trip(trip_id));
 create policy ann_insert on public.announcements for insert to authenticated with check (public.is_planer_staff());
 create policy ann_update on public.announcements for update to authenticated using (public.is_planer_staff()) with check (public.is_planer_staff());
 create policy ann_delete on public.announcements for delete to authenticated using (public.is_planer_staff());
@@ -631,7 +707,7 @@ create policy exp_update on public.expenses for update to authenticated using (p
 create policy exp_delete on public.expenses for delete to authenticated using (public.is_planer_admin());
 
 -- document metadata: members see public docs, staff see all; staff upload metadata.
-create policy docs_select on public.documents for select to authenticated using (visible_to_members or public.is_planer_staff());
+create policy docs_select on public.documents for select to authenticated using (public.current_planer_role()<>'athlete' and (visible_to_members or public.is_planer_staff()));
 create policy docs_insert on public.documents for insert to authenticated with check (public.is_planer_staff());
 create policy docs_update on public.documents for update to authenticated using (public.is_planer_staff()) with check (public.is_planer_staff());
 create policy docs_delete on public.documents for delete to authenticated using (public.is_planer_staff());
@@ -642,7 +718,7 @@ on conflict(id) do nothing;
 
 drop policy if exists planer_files_read on storage.objects;
 create policy planer_files_read on storage.objects for select to authenticated
-using (bucket_id='planer-files' and exists(select 1 from public.documents d where d.storage_path=name and (d.visible_to_members or public.is_planer_staff())));
+using (bucket_id='planer-files' and public.current_planer_role()<>'athlete' and exists(select 1 from public.documents d where d.storage_path=name and (d.visible_to_members or public.is_planer_staff())));
 
 drop policy if exists planer_files_insert on storage.objects;
 create policy planer_files_insert on storage.objects for insert to authenticated
@@ -671,6 +747,6 @@ exception when duplicate_object then null; end $$;
 -- Copy the returned code and use it on PLANER -> Pierwsze logowanie.
 -- After the first admin account exists, create all future codes from the app.
 
--- insert into public.invite_codes(code, role)
--- values (upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)), 'admin')
+-- insert into public.invite_codes(code, role, max_uses)
+-- values (upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)), 'admin', 1)
 -- returning code;

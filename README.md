@@ -1,123 +1,85 @@
 # PLANER
 
-Statyczna aplikacja klubowa przygotowana do hostowania na **GitHub Pages** z backendem **Supabase**.
+Aplikacja klubowa do hostowania na **GitHub Pages** z backendem **Supabase**.
 
-## Co działa
+## Najważniejsze funkcje
 
 - jedno logowanie dla wszystkich ról,
-- pierwsze logowanie przez **jednorazowy kod składający się wyłącznie z liter i cyfr**,
 - role: Administrator, Trener, Zawodnik, Mechanik, Kierowca,
-- zabezpieczenia RLS po stronie Supabase,
-- wyjazdy, uczestnicy, status udziału i informacje o rowerze,
-- wiele aut na jednym wyjeździe,
-- kierowcy, pasażerowie, punkty odbioru i trasa,
-- hotel i informacje o zakwaterowaniu,
-- kalendarz,
-- zadania i checklista,
-- aktywowana przez kadrę lista zakupów,
-- rowery i zgłoszenia serwisowe,
-- komunikaty z potwierdzeniem przeczytania,
-- czaty grupowe + Realtime,
-- dokumenty w prywatnym Supabase Storage,
-- finanse widoczne tylko dla administratora,
-- PWA / możliwość dodania do ekranu głównego,
-- responsywny interfejs i Tryb Wyjazdu.
+- kod Zawodnika: **wielokrotnego użytku przez 24 godziny**,
+- kody Mechanika, Kierowcy, Trenera i Administratora: **jednorazowe**,
+- Row Level Security po stronie Supabase,
+- zawodnik widzi wyłącznie wyjazdy, do których został przypisany,
+- wiele aut na jednym wyjeździe i możliwość dodania kilku aut jednocześnie,
+- osobny kierowca i godzina startu dla każdego auta,
+- punkty odbioru i miejsca wsiadania,
+- hotel i pokoje,
+- miesięczny widok kalendarza,
+- lista zakupów, zadania i checklista,
+- rowery oraz zgłoszenia serwisowe,
+- mechanik ma również pełny podgląd transportu i może zostać przypisany jako kierowca,
+- komunikaty z trwałym statusem „odczytano”,
+- czat prywatny i grupowy z Realtime,
+- czerwone liczniki nieprzeczytanych wiadomości,
+- powiadomienia przeglądarkowe o nowych wiadomościach po wyrażeniu zgody,
+- dokumenty ukryte dla roli Zawodnik,
+- finanse tylko dla Administratora,
+- PWA / instalacja na ekranie głównym.
 
-## 1. Utwórz projekt Supabase
+## Jeśli baza PLANER była już wcześniej wgrana
 
-Utwórz pusty projekt w Supabase.
+Nie uruchamiaj ponownie starego schematu. W Supabase przejdź do **SQL Editor → New query**, wklej cały plik:
 
-### Authentication
+`supabase-update-v2.sql`
 
-Na start najprościej wyłączyć wymaganie potwierdzenia e-maila, aby konto aktywowało się od razu po wpisaniu jednorazowego kodu. Jeśli później włączysz potwierdzanie e-maila, zmieni się przepływ pierwszego logowania.
+i kliknij **Run**.
 
-## 2. Wgraj bazę
+Ten plik aktualizuje istniejącą bazę bez kasowania użytkowników, wyjazdów i pozostałych danych.
 
-Otwórz **SQL Editor** w Supabase i uruchom cały plik:
+## Jeśli tworzysz nową bazę od zera
+
+W **SQL Editor** uruchom cały plik:
 
 `supabase-schema.sql`
 
-Na samym końcu pliku znajduje się zakomentowane polecenie generujące pierwszy kod administratora. Uruchom je osobno:
+Na końcu wygeneruj pierwszy kod Administratora:
 
 ```sql
-insert into public.invite_codes(code, role)
-values (upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)), 'admin')
+insert into public.invite_codes(code, role, max_uses)
+values (upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)), 'admin', 1)
 returning code;
 ```
 
-Skopiuj zwrócony kod. Jest jednorazowy.
+## Authentication
 
-## 3. Ustaw połączenie
+W Supabase wejdź w **Authentication → Sign In / Providers → Email** i wyłącz **Confirm Email**, jeśli konto ma być aktywne od razu po wpisaniu kodu dostępu.
 
-W Supabase skopiuj:
+## Połączenie z Supabase
 
-- Project URL
-- Publishable key
+`config.js` zawiera Project URL i Publishable key. **Nigdy nie dodawaj do frontendu `service_role` ani Secret key.**
 
-Edytuj `config.js`:
+## GitHub Pages
 
-```js
-export const SUPABASE_URL = 'https://TWOJ-PROJEKT.supabase.co';
-export const SUPABASE_PUBLISHABLE_KEY = 'TWÓJ_PUBLISHABLE_KEY';
-```
+1. Wrzuć zawartość folderu PLANER do głównego katalogu repozytorium.
+2. `Settings → Pages`.
+3. `Deploy from a branch`.
+4. Branch `main`, katalog `/root`.
+5. Zapisz.
 
-**Nie umieszczaj `service_role` key w aplikacji ani na GitHubie.**
+Nie ma `npm install` ani builda. Projekt to HTML/CSS/JS korzystający z `supabase-js` przez moduł ESM.
 
-## 4. Pierwszy administrator
+## Powiadomienia czatu
 
-Otwórz stronę PLANER i wybierz **Pierwsze logowanie**.
-
-Podaj:
-
-- imię i nazwisko,
-- e-mail,
-- hasło,
-- wygenerowany kod administratora.
-
-Po utworzeniu konta kod jest oznaczany jako wykorzystany i nie działa drugi raz.
-
-Kolejne kody administrator tworzy już w:
-
-`Administracja → Generuj kod`
-
-Może generować osobne kody dla zawodnika, mechanika, kierowcy, trenera i administratora.
-
-## 5. GitHub Pages
-
-1. Utwórz nowe repozytorium.
-2. Wrzuć **zawartość folderu PLANER** do głównego katalogu repozytorium.
-3. Wejdź w `Settings → Pages`.
-4. Ustaw `Deploy from a branch`.
-5. Wybierz branch `main` i katalog `/root`.
-6. Zapisz.
-
-Nie ma `npm install` ani procesu buildowania. To celowo zwykła aplikacja HTML/CSS/JS.
-
-## Bezpieczeństwo
-
-Ukrycie przycisku w interfejsie nie jest zabezpieczeniem. Dlatego PLANER używa Row Level Security w Supabase.
-
-Przykłady:
-
-- zawodnik nie może bezpośrednio edytować wyjazdów,
-- zawodnik aktualizuje wyłącznie własną odpowiedź na wyjazd przez kontrolowaną funkcję RPC,
-- mechanik widzi i zmienia serwis, ale nie finanse,
-- kierowca widzi przypisany transport i może odznaczać punkty odbioru,
-- finanse są dostępne tylko dla administratora,
-- kod dostępu jest sprawdzany przez trigger w bazie podczas tworzenia konta,
-- kod nie nadaje roli po stronie JavaScriptu.
-
-## Ważne
-
-`config.js` może zawierać Supabase **Publishable key**, ponieważ bezpieczeństwo zapewniają polityki RLS. Nie należy jednak umieszczać w nim klucza `service_role`, który omija RLS.
+W zakładce **Czat** kliknij **Włącz powiadomienia** i zaakceptuj zgodę przeglądarki. Czerwony licznik działa niezależnie od tej zgody. Powiadomienia przeglądarkowe działają, gdy aplikacja jest uruchomiona lub pozostaje otwarta w tle; pełny push do całkowicie zamkniętej aplikacji wymagałby osobnej usługi Web Push.
 
 ## Pliki
 
 - `index.html` — start aplikacji,
-- `styles.css` — interfejs i responsywność,
-- `app.js` — logika PLANER + Supabase,
-- `config.js` — dane projektu Supabase,
-- `supabase-schema.sql` — baza, funkcje, role, RLS, Realtime i Storage,
-- `manifest.webmanifest` — instalacja jako PWA,
-- `sw.js` — cache podstawowych plików,
-- `.nojekyll` — poprawne publikowanie na GitHub Pages.
+- `styles.css` — interfejs,
+- `app.js` — logika aplikacji,
+- `config.js` — konfiguracja Supabase,
+- `supabase-schema.sql` — pełny schemat dla nowej bazy,
+- `supabase-update-v2.sql` — aktualizacja istniejącej bazy,
+- `manifest.webmanifest` — PWA,
+- `sw.js` — cache i obsługa kliknięcia powiadomienia,
+- `.nojekyll` — GitHub Pages.
