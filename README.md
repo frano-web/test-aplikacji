@@ -91,3 +91,6 @@ W zakładce **Czat** kliknij **Włącz powiadomienia** i zaakceptuj zgodę przeg
 - start aplikacji ma timeout i nie wisi bez końca na ekranie Uruchamianie,
 - dodano automatyczną stronę naprawy cache PWA/GitHub Pages,
 - cache aplikacji ma wersję planer-v21.
+
+## PLANER v2.2 — poprawka uruchamiania
+Frontend nie używa już importu ESM `+esm`. Supabase JS jest ładowany jako klasyczny skrypt UMD z jsDelivr, z automatycznym fallbackiem do unpkg. Dodano `diagnostyka.html`, która sprawdza config, bibliotekę i odpowiedź Supabase Auth. `supabase-update-v2.sql` nadal jest aktualizacją dla istniejącej bazy.

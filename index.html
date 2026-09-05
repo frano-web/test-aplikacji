@@ -7,33 +7,61 @@
   <meta name="description" content="PLANER — klubowy system organizacji wyjazdów, transportu, sprzętu i komunikacji">
   <title>PLANER</title>
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=21">
+  <link rel="stylesheet" href="./styles.css?v=22">
 </head>
 <body>
   <div id="app">
     <div class="boot">
       <div class="boot-logo">P</div>
       <strong>PLANER</strong>
-      <span>Uruchamianie…</span>
+      <span id="boot-stage">Uruchamianie…</span>
     </div>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="modal" class="modal"><div id="modal-content"></div></dialog>
+
+  <script src="./config.js?v=22"></script>
   <script>
-    window.addEventListener('error', function(e){ console.error('PLANER startup error', e.error || e.message); });
-    window.addEventListener('unhandledrejection', function(e){ console.error('PLANER promise error', e.reason); });
-    setTimeout(function(){
-      if(document.documentElement.dataset.planerBoot==='ready') return;
-      const el=document.getElementById('app');
-      if(!el) return;
-      el.innerHTML='<section class="auth-shell"><div class="auth-card"><div class="brand"><div class="brand-mark">P</div><div><h1>PLANER</h1><p>Problem z uruchomieniem</p></div></div><div class="notice important" style="margin-top:20px"><strong>Aplikacja nie uruchomiła się poprawnie.</strong><p class="muted">Najczęściej jest to stary cache GitHub Pages/PWA. Kliknij przycisk poniżej, aby wyczyścić cache aplikacji i uruchomić ją ponownie.</p></div><button id="planer-repair" class="primary" type="button" style="margin-top:14px">Napraw i uruchom ponownie</button></div></section>';
-      const b=document.getElementById('planer-repair');
-      if(b) b.onclick=async function(){
-        try{ if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); } if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.filter(k=>k.startsWith('planer-')).map(k=>caches.delete(k))); } }catch(_){}
+  (()=>{
+    const setStage=(text)=>{ const el=document.getElementById('boot-stage'); if(el) el.textContent=text; window.__planerStage=text; };
+    const fatal=(reason)=>{
+      document.documentElement.dataset.planerBoot='failed';
+      const el=document.getElementById('app'); if(!el) return;
+      el.innerHTML=`<section class="auth-shell"><div class="auth-card"><div class="brand"><div class="brand-mark">P</div><div><h1>PLANER</h1><p>Problem z uruchomieniem</p></div></div><div class="notice important" style="margin-top:20px"><strong>Aplikacja nie mogła załadować biblioteki połączenia z Supabase.</strong><p class="muted">${reason}</p><p class="muted">To dzieje się jeszcze przed odczytem bazy SQL. Możesz otworzyć <b>diagnostyka.html</b>, aby sprawdzić połączenie.</p></div><div class="actions" style="margin-top:14px"><button id="planer-repair" class="primary" type="button">Wyczyść cache i uruchom ponownie</button><a class="ghost" href="./diagnostyka.html" style="display:inline-flex;align-items:center;text-decoration:none">Diagnostyka</a></div></div></section>`;
+      document.getElementById('planer-repair')?.addEventListener('click',async()=>{
+        try{
+          if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
+          if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.filter(k=>k.startsWith('planer-')).map(k=>caches.delete(k))); }
+        }catch(_e){}
         location.replace(location.pathname+'?repair='+Date.now());
-      };
-    },7000);
+      });
+    };
+    window.__planerFatal=fatal;
+    window.addEventListener('error',e=>{ console.error('PLANER startup error',e.error||e.message); });
+    window.addEventListener('unhandledrejection',e=>{ console.error('PLANER promise error',e.reason); });
+
+    function loadApp(){
+      if(!window.supabase?.createClient){ fatal('Biblioteka Supabase załadowała się, ale funkcja createClient nie jest dostępna.'); return; }
+      setStage('Ładowanie PLANER…');
+      const s=document.createElement('script');
+      s.src='./app.js?v=22';
+      s.onload=()=>setTimeout(()=>{ if(document.documentElement.dataset.planerBoot!=='ready') fatal('Kod PLANER został pobrany, ale nie zakończył startu. Otwórz Diagnostykę.'); },7000);
+      s.onerror=()=>fatal('Nie udało się pobrać pliku app.js z GitHub Pages. Sprawdź, czy app.js znajduje się w głównym katalogu repozytorium.');
+      document.body.appendChild(s);
+    }
+
+    const cdns=[
+      'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/dist/umd/supabase.js',
+      'https://unpkg.com/@supabase/supabase-js@2.115.0/dist/umd/supabase.js'
+    ];
+    function loadSupabase(i=0){
+      if(i>=cdns.length){ fatal('Nie udało się pobrać Supabase JS z dwóch niezależnych CDN-ów (jsDelivr i unpkg).'); return; }
+      setStage(i===0?'Łączenie z biblioteką Supabase…':'Próba zapasowego serwera…');
+      const s=document.createElement('script'); s.src=cdns[i]; s.crossOrigin='anonymous';
+      s.onload=loadApp; s.onerror=()=>loadSupabase(i+1); document.head.appendChild(s);
+    }
+    loadSupabase();
+  })();
   </script>
-  <script type="module" src="./app.js?v=21"></script>
 </body>
 </html>
